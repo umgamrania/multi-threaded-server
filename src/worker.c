@@ -19,11 +19,12 @@
 void handle_new_client(worker_t *worker);
 void handle_input(worker_t *worker, conn_t *conn);
 void handle_request(worker_t *worker, conn_t *conn);
-void handle_invalid(worker_t *worker, conn_t *conn, int status_code);
+void handle_invalid(http_request_t *req, http_response_t *res, int status_code);
 void handle_write(worker_t *worker, conn_t *conn);
 void handle_complete(worker_t *worker, conn_t *conn);
 void handle_sendfile(worker_t *worker, conn_t *conn);
 void handle_hangup(worker_t *worker, conn_t *conn);
+int handle_static_file(http_request_t *req, http_response_t *resp);
 static void handle_epoll_event(worker_t *worker, struct epoll_event event);
 
 // Create a socket and bind it to INADDR_ANY on given port
@@ -223,7 +224,9 @@ void handle_input(worker_t *worker, conn_t *conn) {
         // only specific error being handled for now
         if (result == INVALID_LENGTH_REQ) status_code = 419;
 
-        handle_invalid(worker, conn, status_code);
+        handle_invalid(NULL, &conn->resp, status_code);
+        conn->wbuf_len = http_response_to_str(&conn->resp, conn->wbuf, sizeof(conn->wbuf));
+        handle_write(worker, conn);
     }
 }
 
@@ -252,7 +255,7 @@ void handle_request(worker_t *worker, conn_t *conn) {
 
     // check path
     if (!path_valid(req->path)) {
-        handle_invalid(worker, conn, 400);
+        handle_invalid(NULL, &conn->resp, 400);
         return;
     }
 
@@ -273,38 +276,24 @@ void handle_request(worker_t *worker, conn_t *conn) {
         if (strncasecmp(cn_hdr->value, "Keep-Alive", cn_hdr->value_len) == 0)
             resp->keep_alive = true;
     }
-    
-    // check for path in route handlers
 
     // check for static files
-    int file_fd = open(req->path + 1, O_RDONLY);
-    if (file_fd != -1) {
-        http_response_set_status_code(resp, 200);
-        http_response_set_file(resp, file_fd);
-        if (resp->keep_alive)
-            http_response_header_add(resp, "Connection", "Keep-Alive");
+    int result = handle_static_file(req, resp);
 
-        conn->wbuf_len = http_response_to_str(resp, conn->wbuf, sizeof(conn->wbuf));
-        handle_write(worker, conn);
-        return;
-    }
+    if (!result)
+        handle_invalid(req, resp, 404);
 
-    handle_invalid(worker, conn, 404);
+    conn->wbuf_len = http_response_to_str(resp, conn->wbuf, sizeof(conn->wbuf));
+    handle_write(worker, conn);
     return;
 }
 
 // Send response to invalid request
-void handle_invalid(worker_t *worker, conn_t *conn, int status_code) {
-    http_response_t *res = &conn->resp;
-
+void handle_invalid(http_request_t *req, http_response_t *res, int status_code) {
     if (res->keep_alive)
         http_response_header_add(res, "Connection", "Keep-Alive");
 
     http_response_set_status_code(res, status_code);
-    
-    conn->wbuf_len = http_response_to_str(res, conn->wbuf, sizeof(conn->wbuf));
-    
-    handle_write(worker, conn);
 }
 
 // send the contents of wbuf to client
@@ -404,4 +393,18 @@ void handle_sendfile(worker_t *worker, conn_t *conn) {
         .events = EPOLLIN | EPOLLOUT | EPOLLERR | EPOLLRDHUP
     };
     epoll_ctl(worker->epfd, EPOLL_CTL_MOD, conn->client_fd, &ev);
+}
+
+int handle_static_file(http_request_t *req, http_response_t *resp) {
+    int file_fd = open(req->path + 1, O_RDONLY);
+    if (file_fd == -1) {
+        return 0;
+    }
+
+    http_response_set_status_code(resp, 200);
+    http_response_set_file(resp, file_fd);
+    if (resp->keep_alive)
+        http_response_header_add(resp, "Connection", "Keep-Alive");
+
+    return 1;
 }
