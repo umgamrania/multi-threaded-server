@@ -26,4 +26,6 @@ void        worker_init(worker_t *worker);
 void        worker_run(worker_t *worker);
 void        worker_destroy(worker_t *worker);
 
+void        http_response_send(worker_t *worker, http_response_t *res, conn_t *conn);
+
 #endif

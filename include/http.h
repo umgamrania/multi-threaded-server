@@ -65,11 +65,14 @@ typedef struct _http_response_t {
 	int		status_code;
 
 	bool	has_file;
-	int		fd;
+	int		file_fd;
+	int		file_size;
+	int 	file_sent;
 
 	// common headers
 	char	*content_type;
 	size_t	content_length;
+	bool	keep_alive;
 
 	char	*body;
 	size_t	body_len;

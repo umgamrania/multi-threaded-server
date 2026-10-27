@@ -3,6 +3,7 @@
 #include <string.h>
 #include <strings.h>
 
+#include "util.h"
 #include "http.h"
 
 static const char *http_status_text(int status_code) {
@@ -21,6 +22,7 @@ static const char *http_status_text(int status_code) {
         case 404: return "Not Found";
         case 405: return "Method Not Allowed";
         case 408: return "Request Timeout";
+        case 419: return "Length Required";
         case 500: return "Internal Server Error";
         case 501: return "Not Implemented";
         case 502: return "Bad Gateway";
@@ -54,7 +56,8 @@ void http_response_set_file(http_response_t *res, int fd) {
     if (!res) return;
 
     res->has_file = true;
-    res->fd = fd;
+    res->file_fd = fd;
+    res->file_size = get_file_size(fd);
 }
 
 void http_response_set_content_type(http_response_t *res, char *content_type) {
@@ -177,12 +180,13 @@ size_t http_response_to_str(http_response_t *res, char *buf, size_t len) {
         WR_LIT("\r\n");
     }
 
-    /* Content-Length (body responses only) */
-    if (!res->has_file && res->body) {
-        WR_LIT("Content-Length: ");
-        WR_UINT(res->body_len);
-        WR_LIT("\r\n");
+    WR_LIT("Content-Length: ");
+    if (res->has_file) {
+        WR_UINT(res->file_size);
+    } else {
+        WR_UINT(res->content_length);
     }
+    WR_LIT("\r\n");
 
     /* Extra headers — use pre-stored key_len / value_len, no strlen */
     for (size_t i = 0; i < res->headers_count; i++) {

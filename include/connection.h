@@ -15,6 +15,8 @@
 typedef enum {
     CONN_READING,
     CONN_WRITING,
+    CONN_PROCESS,
+    CONN_SEND_FILE,
     CONN_COMPLETE
 } conn_state_t;
 
@@ -28,8 +30,6 @@ typedef struct _conn_t {
     char    wbuf[4096];
     int     wbuf_sent;
     int     wbuf_len;
-
-    bool keep_alive;
 
     http_request_t  req;
     http_response_t resp;
